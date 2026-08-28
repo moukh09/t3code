@@ -1,0 +1,14 @@
+let Window = 24h;
+ProviderOperations
+| where Timestamp >= ago(Window)
+| where isnotnull(UsedTokens) or isnotnull(ContextSize)
+| extend ContextUtilizationPercent =
+    iff(ContextSize > 0 and isnotnull(UsedTokens), 100.0 * todouble(UsedTokens) / todouble(ContextSize), real(null))
+| summarize
+    Samples=count(),
+    P50UsedTokens=percentile(UsedTokens, 50),
+    P95UsedTokens=percentile(UsedTokens, 95),
+    P50ContextSize=percentile(ContextSize, 50),
+    P95ContextUtilizationPercent=percentile(ContextUtilizationPercent, 95)
+  by Provider, Operation, CliVersionBucket
+| order by P95ContextUtilizationPercent desc

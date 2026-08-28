@@ -5,8 +5,10 @@ import {
   makeAcpAssistantItemEvent,
   makeAcpContentDeltaEvent,
   makeAcpPlanUpdatedEvent,
+  makeAcpReasoningDeltaEvent,
   makeAcpRequestOpenedEvent,
   makeAcpRequestResolvedEvent,
+  makeAcpThreadTokenUsageUpdatedEvent,
   makeAcpToolCallEvent,
 } from "./AcpCoreRuntimeEvents.ts";
 
@@ -189,6 +191,60 @@ describe("AcpCoreRuntimeEvents", () => {
       payload: {
         itemType: "assistant_message",
         status: "inProgress",
+      },
+    });
+  });
+
+  it("maps ACP reasoning and usage updates to canonical runtime events", () => {
+    const stamp = { eventId: "event-1" as never, createdAt: "2026-03-27T00:00:00.000Z" };
+    const provider = ProviderDriverKind.make("cursor");
+    const threadId = "thread-1" as never;
+    const turnId = TurnId.make("turn-1");
+
+    expect(
+      makeAcpReasoningDeltaEvent({
+        stamp,
+        provider,
+        threadId,
+        turnId,
+        text: "inspect the repository",
+        rawPayload: { sessionId: "session-1" },
+      }),
+    ).toMatchObject({
+      type: "content.delta",
+      payload: {
+        streamKind: "reasoning_text",
+        delta: "inspect the repository",
+      },
+      raw: {
+        source: "acp.jsonrpc",
+        method: "session/update",
+      },
+    });
+
+    expect(
+      makeAcpThreadTokenUsageUpdatedEvent({
+        stamp,
+        provider,
+        threadId,
+        turnId,
+        usage: {
+          usedTokens: 8_192,
+          maxTokens: 128_000,
+        },
+        rawPayload: { sessionId: "session-1" },
+      }),
+    ).toMatchObject({
+      type: "thread.token-usage.updated",
+      payload: {
+        usage: {
+          usedTokens: 8_192,
+          maxTokens: 128_000,
+        },
+      },
+      raw: {
+        source: "acp.jsonrpc",
+        method: "session/update",
       },
     });
   });

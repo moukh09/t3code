@@ -232,6 +232,9 @@ describe("provider enabled defaults", () => {
     expect(decoded.providers.codex.enabled).toBe(true);
     expect(decoded.providers.claudeAgent.enabled).toBe(true);
     expect(decoded.providers.cursor.enabled).toBe(false);
+    expect(decoded.providers.githubCopilot.enabled).toBe(false);
+    expect(decoded.providers.githubCopilot.binaryPath).toBe("copilot");
+    expect(decoded.providers.githubCopilot.launchArgs).toBe("");
     expect(decoded.providers.grok.enabled).toBe(false);
     expect(decoded.providers.opencode.enabled).toBe(false);
   });
@@ -240,6 +243,7 @@ describe("provider enabled defaults", () => {
     expect(defaultEnabledForDriver(ProviderDriverKind.make("codex"))).toBe(true);
     expect(defaultEnabledForDriver(ProviderDriverKind.make("cursor"))).toBe(false);
     expect(defaultEnabledForDriver(ProviderDriverKind.make("grok"))).toBe(false);
+    expect(defaultEnabledForDriver(ProviderDriverKind.make("githubCopilot"))).toBe(false);
     // Unknown fork drivers stay enabled; their own build decides otherwise.
     expect(defaultEnabledForDriver(ProviderDriverKind.make("ollama"))).toBe(true);
   });
@@ -364,6 +368,10 @@ describe("ServerSettingsPatch string normalization", () => {
           homePath: "  ~/.codex  ",
           launchArgs: "  --strict-config --enable foo  ",
         },
+        githubCopilot: {
+          binaryPath: "  C:\\tools\\copilot.exe  ",
+          launchArgs: "  --log-level debug  ",
+        },
       },
       providerInstances: {
         codex_personal: {
@@ -380,6 +388,8 @@ describe("ServerSettingsPatch string normalization", () => {
     expect(patch.providers?.codex?.binaryPath).toBe("/opt/homebrew/bin/codex");
     expect(patch.providers?.codex?.homePath).toBe("~/.codex");
     expect(patch.providers?.codex?.launchArgs).toBe("--strict-config --enable foo");
+    expect(patch.providers?.githubCopilot?.binaryPath).toBe("C:\\tools\\copilot.exe");
+    expect(patch.providers?.githubCopilot?.launchArgs).toBe("--log-level debug");
     expect(patch.providerInstances?.[ProviderInstanceId.make("codex_personal")]?.driver).toBe(
       "codex",
     );

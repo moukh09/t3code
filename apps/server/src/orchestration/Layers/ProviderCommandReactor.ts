@@ -16,6 +16,7 @@ import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@t3tools/shar
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
@@ -27,7 +28,12 @@ import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
-import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
+import {
+  increment,
+  orchestrationEventsProcessedTotal,
+  providerMetricAttributes,
+  providerSessionsTotal,
+} from "../../observability/Metrics.ts";
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
 import type { ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../textGeneration/TextGeneration.ts";
@@ -1500,6 +1506,65 @@ const make = Effect.gen(function* () {
 
   const worker = yield* makeDrainableWorker(processDomainEventSafely);
 
+  const reconcileOrphanedProviderWork = Effect.fn("reconcileOrphanedProviderWork")(function* () {
+    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+    const liveSessions = yield* providerService.listSessions();
+    const liveThreadIds = new Set(liveSessions.map((session) => session.threadId));
+    const orphanedThreads = snapshot.threads.filter(
+      (thread) =>
+        (thread.session?.status === "starting" ||
+          (thread.session?.status === "running" && thread.session.activeTurnId !== null)) &&
+        !liveThreadIds.has(thread.id),
+    );
+    if (orphanedThreads.length === 0) {
+      return;
+    }
+
+    const interruptedAt = DateTime.formatIso(yield* DateTime.now);
+    yield* Effect.forEach(
+      orphanedThreads,
+      (thread) => {
+        const session = thread.session;
+        if (session === null || (session.status !== "starting" && session.status !== "running")) {
+          return Effect.void;
+        }
+        return setThreadSession({
+          threadId: thread.id,
+          session: {
+            ...session,
+            status: "interrupted",
+            activeTurnId: null,
+            updatedAt: interruptedAt,
+          },
+          createdAt: interruptedAt,
+        }).pipe(
+          Effect.andThen(
+            increment(
+              providerSessionsTotal,
+              providerMetricAttributes(session.providerName ?? "unknown", {
+                operation: "startup_reconcile",
+                outcome: "interrupted",
+              }),
+            ),
+          ),
+          Effect.catchCause((cause) => {
+            if (Cause.hasInterruptsOnly(cause)) {
+              return Effect.interrupt;
+            }
+            return Effect.logWarning(
+              "provider command reactor failed to reconcile orphaned provider work",
+              {
+                threadId: thread.id,
+                cause: Cause.pretty(cause),
+              },
+            );
+          }),
+        );
+      },
+      { discard: true },
+    );
+  });
+
   const start: ProviderCommandReactorShape["start"] = Effect.fn("start")(function* () {
     const interruptedTitleRegenerations = yield* findInterruptedThreadTitleRegenerations().pipe(
       Effect.catchCause((cause) => {
@@ -1527,6 +1592,17 @@ const make = Effect.gen(function* () {
     });
 
     yield* forkParked(Stream.runForEach(orchestrationEngine.streamDomainEvents, processEvent));
+    yield* reconcileOrphanedProviderWork().pipe(
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) {
+          return Effect.interrupt;
+        }
+        return Effect.logWarning(
+          "provider command reactor failed to inspect orphaned provider work",
+          { cause: Cause.pretty(cause) },
+        );
+      }),
+    );
 
     // The domain event stream is hot, so work pending before this reactor
     // starts cannot be resumed. Correlated completions only clear the request

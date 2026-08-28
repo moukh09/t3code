@@ -193,7 +193,7 @@ export class AcpSessionRuntime extends Context.Service<
     readonly drainEvents: Effect.Effect<void>;
     /** Latest mode state observed from session setup and `session/update` notifications. */
     readonly getModeState: Effect.Effect<AcpSessionModeState | undefined>;
-    /** Latest configuration options observed from session setup and configuration writes. */
+    /** Latest configuration options observed from setup, writes, and session notifications. */
     readonly getConfigOptions: Effect.Effect<ReadonlyArray<EffectAcpSchema.SessionConfigOption>>;
     /**
      * Sends a prompt turn to the active session.
@@ -405,6 +405,7 @@ export const make = (
         yield* handleSessionUpdate({
           queue: eventQueue,
           modeStateRef,
+          configOptionsRef,
           toolCallsRef,
           assistantSegmentRef,
           assistantItemRuntimeId,
@@ -774,9 +775,7 @@ export const make = (
             if (Option.isSome(activePromptFiber)) {
               yield* Fiber.interrupt(activePromptFiber.value).pipe(Effect.ignore);
             }
-            yield* acp.agent
-              .cancel({ sessionId: started.sessionId })
-              .pipe(Effect.ignore, Effect.forkIn(runtimeScope));
+            yield* acp.agent.cancel({ sessionId: started.sessionId });
           }),
         ),
       ),
@@ -854,6 +853,7 @@ function configOptionCurrentValueMatches(
 const handleSessionUpdate = ({
   queue,
   modeStateRef,
+  configOptionsRef,
   toolCallsRef,
   assistantSegmentRef,
   assistantItemRuntimeId,
@@ -861,6 +861,7 @@ const handleSessionUpdate = ({
 }: {
   readonly queue: Queue.Queue<AcpSessionRuntimeEvent>;
   readonly modeStateRef: Ref.Ref<AcpSessionModeState | undefined>;
+  readonly configOptionsRef: Ref.Ref<ReadonlyArray<EffectAcpSchema.SessionConfigOption>>;
   readonly toolCallsRef: Ref.Ref<Map<string, AcpToolCallTrackedState>>;
   readonly assistantSegmentRef: Ref.Ref<AcpAssistantSegmentState>;
   readonly assistantItemRuntimeId: string;
@@ -872,6 +873,9 @@ const handleSessionUpdate = ({
       yield* Ref.update(modeStateRef, (current) =>
         current === undefined ? current : updateModeState(current, parsed.modeId!),
       );
+    }
+    if (parsed.configOptions) {
+      yield* Ref.set(configOptionsRef, parsed.configOptions);
     }
     for (const event of parsed.events) {
       if (event._tag === "ToolCallUpdated") {

@@ -1,0 +1,12 @@
+let Window = 24h;
+let Counts = ProviderOperations
+| where Timestamp >= ago(Window)
+| where Operation == "turn"
+| summarize Operations=count() by Provider, Operation, Outcome, StopReason;
+let Totals = Counts
+| summarize TotalOperations=sum(Operations) by Provider, Operation;
+Counts
+| join kind=inner Totals on Provider, Operation
+| extend Percent=round(100.0 * Operations / TotalOperations, 2)
+| project Provider, Operation, Outcome, StopReason, Operations, Percent
+| order by Provider asc, Operation asc, Operations desc

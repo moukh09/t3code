@@ -148,10 +148,14 @@ describe("ProviderCommandReactor", () => {
     readonly threadModelSelection?: ModelSelection;
     readonly sessionModelSwitch?: "unsupported" | "in-session";
     readonly requiresNewThreadForModelChange?: boolean;
+    readonly reconciliationSessionSetFailures?: number;
+    readonly secondOrphanedRunningTurnBeforeStart?: boolean;
     readonly titleRegenerationCompletionDispatchFailures?: number;
     readonly titleRegenerationBeforeStart?: "one" | "two";
     readonly interruptTurnEffect?: () => Effect.Effect<void, ProviderAdapterRequestError>;
     readonly stopSessionEffect?: () => Effect.Effect<void, ProviderAdapterRequestError>;
+    readonly runningTurnBeforeStart?: "live" | "orphaned";
+    readonly startingTurnBeforeStart?: boolean;
     readonly startSessionEffect?: (
       session: ProviderSession,
     ) => Effect.Effect<ProviderSession, ProviderAdapterRequestError>;
@@ -374,6 +378,7 @@ describe("ProviderCommandReactor", () => {
       Layer.provide(SqlitePersistenceMemory),
     );
     let titleRegenerationCompletionDispatchAttempts = 0;
+    let reconciliationSessionSetDispatchAttempts = 0;
     const reactorOrchestrationLayer = Layer.effect(
       OrchestrationEngineService,
       Effect.gen(function* () {
@@ -388,6 +393,15 @@ describe("ProviderCommandReactor", () => {
                 (input?.titleRegenerationCompletionDispatchFailures ?? 0)
               ) {
                 return Effect.die(new Error("Injected title regeneration completion failure"));
+              }
+            }
+            if (command.type === "thread.session.set" && command.session.status === "interrupted") {
+              reconciliationSessionSetDispatchAttempts += 1;
+              if (
+                reconciliationSessionSetDispatchAttempts <=
+                (input?.reconciliationSessionSetFailures ?? 0)
+              ) {
+                return Effect.die(new Error("Injected reconciliation session-set failure"));
               }
             }
             return engine.dispatch(command);
@@ -463,7 +477,10 @@ describe("ProviderCommandReactor", () => {
         createdAt: now,
       }),
     );
-    if (input?.titleRegenerationBeforeStart === "two") {
+    if (
+      input?.titleRegenerationBeforeStart === "two" ||
+      input?.secondOrphanedRunningTurnBeforeStart === true
+    ) {
       await Effect.runPromise(
         engine.dispatch({
           type: "thread.create",
@@ -497,6 +514,83 @@ describe("ProviderCommandReactor", () => {
           regenerateTitle: true,
         }),
       );
+    }
+    if (input?.startingTurnBeforeStart === true) {
+      await Effect.runPromise(
+        engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-starting-turn-before-reactor-start"),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: asMessageId("user-message-starting-before-reactor"),
+            role: "user",
+            text: "start before restart",
+            attachments: [],
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: now,
+        }),
+      );
+      await Effect.runPromise(
+        engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.make("cmd-starting-session-before-reactor-start"),
+          threadId: ThreadId.make("thread-1"),
+          session: {
+            threadId: ThreadId.make("thread-1"),
+            status: "starting",
+            providerName: "codex",
+            providerInstanceId: modelSelection.instanceId,
+            runtimeMode: "approval-required",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: now,
+          },
+          createdAt: now,
+        }),
+      );
+    }
+    if (input?.runningTurnBeforeStart !== undefined) {
+      const runningThreadIds = [
+        ThreadId.make("thread-1"),
+        ...(input.secondOrphanedRunningTurnBeforeStart === true ? [ThreadId.make("thread-2")] : []),
+      ];
+      for (const [index, threadId] of runningThreadIds.entries()) {
+        await Effect.runPromise(
+          engine.dispatch({
+            type: "thread.session.set",
+            commandId: CommandId.make(
+              `cmd-orphaned-running-turn-before-reactor-start-${index + 1}`,
+            ),
+            threadId,
+            session: {
+              threadId,
+              status: "running",
+              providerName: "codex",
+              providerInstanceId: modelSelection.instanceId,
+              runtimeMode: "approval-required",
+              activeTurnId: TurnId.make(
+                index === 0 ? "turn-orphaned" : `turn-orphaned-${index + 1}`,
+              ),
+              lastError: null,
+              updatedAt: now,
+            },
+            createdAt: now,
+          }),
+        );
+      }
+      if (input.runningTurnBeforeStart === "live") {
+        runtimeSessions.push({
+          provider: ProviderDriverKind.make("codex"),
+          providerInstanceId: modelSelection.instanceId,
+          status: "running",
+          runtimeMode: "approval-required",
+          threadId: ThreadId.make("thread-1"),
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
     }
 
     scope = await Effect.runPromise(Scope.make("sequential"));
@@ -677,6 +771,56 @@ describe("ProviderCommandReactor", () => {
       expect(thread?.session?.lastError).toBeNull();
     }),
   );
+
+  it("interrupts a projected running turn with no live provider session on startup", async () => {
+    const harness = await createHarness({ runningTurnBeforeStart: "orphaned" });
+
+    const readModel = await harness.readModel();
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+
+    expect(thread?.session?.status).toBe("interrupted");
+    expect(thread?.session?.activeTurnId).toBeNull();
+    expect(thread?.latestTurn?.state).toBe("interrupted");
+    expect(thread?.latestTurn?.turnId).toBe(TurnId.make("turn-orphaned"));
+  });
+
+  it("preserves a projected running turn with a live provider session on startup", async () => {
+    const harness = await createHarness({ runningTurnBeforeStart: "live" });
+
+    const readModel = await harness.readModel();
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+
+    expect(thread?.session?.status).toBe("running");
+    expect(thread?.session?.activeTurnId).toBe(TurnId.make("turn-orphaned"));
+    expect(thread?.latestTurn?.state).toBe("running");
+  });
+
+  it("interrupts projected provider startup with no live session on reactor startup", async () => {
+    const harness = await createHarness({ startingTurnBeforeStart: true });
+
+    const readModel = await harness.readModel();
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+
+    expect(thread?.session?.status).toBe("interrupted");
+    expect(thread?.session?.activeTurnId).toBeNull();
+    expect(thread?.latestTurn).toBeNull();
+  });
+
+  it("continues reconciling orphaned provider work after one session update fails", async () => {
+    const harness = await createHarness({
+      reconciliationSessionSetFailures: 1,
+      runningTurnBeforeStart: "orphaned",
+      secondOrphanedRunningTurnBeforeStart: true,
+    });
+
+    const readModel = await harness.readModel();
+    const statuses = readModel.threads
+      .filter((thread) => thread.id === "thread-1" || thread.id === "thread-2")
+      .map((thread) => thread.session?.status)
+      .sort();
+
+    expect(statuses).toEqual(["interrupted", "running"]);
+  });
 
   it("generates a thread title on the first turn", async () => {
     const harness = await createHarness();

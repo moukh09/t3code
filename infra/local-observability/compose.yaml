@@ -1,0 +1,56 @@
+name: t3code-local-observability
+
+services:
+  kusto:
+    image: mcr.microsoft.com/azuredataexplorer/kustainer-linux:latest
+    environment:
+      ACCEPT_EULA: "Y"
+    ports:
+      - "127.0.0.1:${KUSTO_HOST_PORT:-8080}:8080"
+    mem_limit: 4g
+    volumes:
+      - t3code-kusto-data:/kustodata
+      - t3code-ingestion-staging:/staging:ro
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    user: "0:0"
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    ports:
+      - "127.0.0.1:4318:4318"
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - t3code-otel-files:/var/lib/otel
+    restart: unless-stopped
+
+  ingestion-worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    environment:
+      KUSTO_ENDPOINT: http://kusto:8080
+      KUSTO_DATABASE: T3CodeLocal
+      KUSTO_ADMIN_DATABASE: NetDefaultDB
+      INGEST_POLL_INTERVAL_MS: "2000"
+      RETENTION_INTERVAL_MS: "3600000"
+    depends_on:
+      kusto:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+    volumes:
+      - t3code-otel-files:/var/lib/otel:ro
+      - t3code-ingestion-state:/state
+      - t3code-ingestion-staging:/staging
+    restart: unless-stopped
+
+volumes:
+  t3code-kusto-data:
+    name: t3code-kusto-data
+  t3code-otel-files:
+    name: t3code-otel-files
+  t3code-ingestion-state:
+    name: t3code-ingestion-state
+  t3code-ingestion-staging:
+    name: t3code-ingestion-staging

@@ -49,6 +49,16 @@ describe("ProviderSettingsForm helpers", () => {
     ]);
   });
 
+  it("exposes direct GitHub Copilot launch settings", () => {
+    const copilot = DRIVER_OPTION_BY_VALUE[ProviderDriverKind.make("githubCopilot")];
+
+    expect(copilot).toBeDefined();
+    expect(deriveProviderSettingsFields(copilot!).map((field) => field.key)).toEqual([
+      "binaryPath",
+      "launchArgs",
+    ]);
+  });
+
   it("preserves unknown config keys while omitting empty configurable fields", () => {
     const opencode = DRIVER_OPTION_BY_VALUE[ProviderDriverKind.make("opencode")];
     expect(opencode).toBeDefined();

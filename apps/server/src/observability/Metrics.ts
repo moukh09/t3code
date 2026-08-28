@@ -58,6 +58,33 @@ export const providerRuntimeEventsTotal = Metric.counter("t3_provider_runtime_ev
   description: "Total canonical provider runtime events processed.",
 });
 
+export const providerOperationsTotal = Metric.counter("t3_provider_operations_total", {
+  description: "Total privacy-safe provider operations recorded at protocol boundaries.",
+});
+
+export const providerOperationDuration = Metric.timer("t3_provider_operation_duration", {
+  description: "Privacy-safe provider operation duration.",
+});
+
+export const providerFirstResponseDuration = Metric.timer("t3_provider_first_response_duration", {
+  description: "Time from provider prompt submission to the first assistant or reasoning delta.",
+});
+
+export const providerPostSettlementTailDuration = Metric.timer(
+  "t3_provider_post_settlement_tail_duration",
+  {
+    description:
+      "Time from provider prompt settlement to the final notification observed before the next turn or session shutdown.",
+  },
+);
+
+export const providerTokenUsage = Metric.histogram("t3_provider_token_usage", {
+  description: "Provider token usage samples.",
+  boundaries: [
+    0, 1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 128_000, 256_000, 512_000, 1_000_000,
+  ],
+});
+
 export const gitCommandsTotal = Metric.counter("t3_git_commands_total", {
   description: "Total git commands executed by the server runtime.",
 });

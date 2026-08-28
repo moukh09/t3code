@@ -10,6 +10,36 @@ import {
 } from "./modelOptions";
 
 describe("mobile model options", () => {
+  it("uses the GitHub Copilot provider label supplied by the server", () => {
+    const config = {
+      providers: [
+        {
+          instanceId: "githubCopilot",
+          driver: "githubCopilot",
+          displayName: "GitHub Copilot",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          models: [
+            {
+              slug: "gpt-5.6-sol",
+              name: "GPT-5.6 Sol",
+              isCustom: false,
+              capabilities: null,
+            },
+          ],
+        },
+      ],
+    } as unknown as ServerConfig;
+
+    expect(groupByProvider(buildModelOptions(config, null))).toMatchObject([
+      {
+        providerKey: "githubCopilot",
+        providerLabel: "GitHub Copilot",
+      },
+    ]);
+  });
+
   it("groups models by provider and flags legacy entries", () => {
     const config = {
       providers: [

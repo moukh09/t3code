@@ -1,0 +1,14 @@
+let Window = 24h;
+ProviderOperations
+| where Timestamp >= ago(Window)
+| where isnotnull(DurationMs)
+| extend LatencyKind = case(
+    Operation == "probe", "probe",
+    Operation in ("session_new", "session_load"), "session",
+    Operation == "first_response", "first_response",
+    Operation == "turn", "turn",
+    "other")
+| where LatencyKind != "other"
+| summarize Samples=count(), P50Ms=percentile(DurationMs, 50), P95Ms=percentile(DurationMs, 95)
+  by Provider, LatencyKind, InteractionMode, RuntimeMode
+| order by LatencyKind asc, P95Ms desc

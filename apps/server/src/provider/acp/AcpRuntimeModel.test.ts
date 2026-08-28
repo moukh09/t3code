@@ -339,6 +339,87 @@ describe("AcpRuntimeModel", () => {
     ]);
   });
 
+  it("projects ACP thought chunks separately from assistant text", () => {
+    const result = parseSessionUpdateEvent({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_thought_chunk",
+        content: {
+          type: "text",
+          text: "inspect the repository",
+        },
+      },
+    } satisfies EffectAcpSchema.SessionNotification);
+
+    expect(result.events).toEqual([
+      {
+        _tag: "ReasoningDelta",
+        text: "inspect the repository",
+        rawPayload: {
+          sessionId: "session-1",
+          update: {
+            sessionUpdate: "agent_thought_chunk",
+            content: {
+              type: "text",
+              text: "inspect the repository",
+            },
+          },
+        },
+      },
+    ]);
+  });
+
+  it("parses ACP configuration and usage updates", () => {
+    const configOptions = [
+      {
+        id: "model",
+        name: "Model",
+        category: "model",
+        type: "select",
+        currentValue: "composer",
+        options: [{ value: "composer", name: "Composer" }],
+      },
+    ] satisfies ReadonlyArray<EffectAcpSchema.SessionConfigOption>;
+
+    const configResult = parseSessionUpdateEvent({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions,
+      },
+    } satisfies EffectAcpSchema.SessionNotification);
+
+    expect(configResult.configOptions).toEqual(configOptions);
+    expect(configResult.events).toEqual([]);
+
+    const usageResult = parseSessionUpdateEvent({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "usage_update",
+        used: 8_192,
+        size: 128_000,
+      },
+    } satisfies EffectAcpSchema.SessionNotification);
+
+    expect(usageResult.events).toEqual([
+      {
+        _tag: "UsageUpdated",
+        usage: {
+          usedTokens: 8_192,
+          maxTokens: 128_000,
+        },
+        rawPayload: {
+          sessionId: "session-1",
+          update: {
+            sessionUpdate: "usage_update",
+            used: 8_192,
+            size: 128_000,
+          },
+        },
+      },
+    ]);
+  });
+
   it("keeps permission request parsing compatible with loose extension payloads", () => {
     const request = parsePermissionRequest({
       sessionId: "session-1",

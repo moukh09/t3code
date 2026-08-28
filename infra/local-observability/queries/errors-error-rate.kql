@@ -1,0 +1,11 @@
+let Window = 24h;
+ProviderOperations
+| where Timestamp >= ago(Window)
+| summarize
+    Operations=count(),
+    Errors=countif(Outcome == "failure"),
+    ErrorRate=round(100.0 * countif(Outcome == "failure") / count(), 2),
+    ErrorCodes=make_set_if(ErrorCode, Outcome == "failure" and ErrorCode != ""),
+    AcpErrorCodes=make_set_if(AcpErrorCode, Outcome == "failure" and AcpErrorCode != "")
+  by Provider, Operation, Stage, CliVersionBucket
+| order by ErrorRate desc, Errors desc

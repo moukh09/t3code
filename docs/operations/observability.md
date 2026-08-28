@@ -8,6 +8,9 @@ T3 Code has one server-side observability model:
 - completed spans go to a local NDJSON trace file
 - traces and metrics can also be exported over OTLP to a real backend like Grafana LGTM
 
+For the GitHub Copilot provider's privacy-safe local Kusto workflow, see
+[GitHub Copilot local observability](github-copilot-local-observability.md).
+
 The local trace file is the persisted source of truth for normal local launches. Those launches do not
 write a separate server log file, but SSH-managed launches also persist the remote process's
 stdout/stderr at `~/.t3/ssh-launch/<state>/server.log`.

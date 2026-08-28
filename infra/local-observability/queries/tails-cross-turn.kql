@@ -1,0 +1,11 @@
+let Window = 24h;
+ProviderOperations
+| where Timestamp >= ago(Window)
+| where Operation == "post_settlement_tail" or CrossedTurnWindow == true
+| summarize
+    Samples=count(),
+    CrossTurn=countif(CrossedTurnWindow == true),
+    P50TailMs=percentile(DurationMs, 50),
+    P95TailMs=percentile(DurationMs, 95)
+  by Provider, Operation, Outcome, StopReason
+| order by P95TailMs desc

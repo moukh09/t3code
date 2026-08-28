@@ -1,0 +1,3 @@
+.drop extents older 30 days from ProviderMetrics
+
+.drop extents older 30 days from ProviderOperations

@@ -1,0 +1,9 @@
+let Window = 24h;
+ProviderOperations
+| where Timestamp >= ago(Window)
+| where Operation in ("tool", "permission")
+| summarize
+    Operations=count(),
+    Failures=countif(Outcome == "failure" or ToolOutcome == "failed")
+  by Provider, Operation, ToolKind, ToolOutcome, PermissionRequested, PermissionDecision
+| order by Failures desc, Operations desc
