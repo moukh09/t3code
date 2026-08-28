@@ -5,6 +5,7 @@ import * as AcpErrors from "effect-acp/errors";
 
 import {
   classifyGitHubCopilotOperationError,
+  normalizeGitHubCopilotAcpErrorCode,
   normalizeGitHubCopilotCliVersionBucket,
   recordGitHubCopilotTelemetry,
   telemetryFailureRecord,
@@ -58,6 +59,12 @@ describe("GitHubCopilotTelemetry", () => {
     assert.equal(normalizeGitHubCopilotCliVersionBucket("1.0.81-5"), "1.0");
     assert.equal(normalizeGitHubCopilotCliVersionBucket("custom-model"), "unknown");
     assert.equal(normalizeGitHubCopilotCliVersionBucket(undefined), "unknown");
+  });
+
+  it("keeps ACP metric error-code labels bounded", () => {
+    assert.equal(normalizeGitHubCopilotAcpErrorCode("-32000"), "-32000");
+    assert.equal(normalizeGitHubCopilotAcpErrorCode("123456"), "other");
+    assert.equal(normalizeGitHubCopilotAcpErrorCode(undefined), undefined);
   });
 
   it("keeps provider failure stages distinct", () => {

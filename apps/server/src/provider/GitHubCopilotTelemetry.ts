@@ -270,6 +270,23 @@ export function normalizeGitHubCopilotCliVersionBucket(version: string | null | 
   return match ? `${match[1]}.${match[2]}` : "unknown";
 }
 
+const KNOWN_ACP_ERROR_CODES = new Set([
+  "-32700",
+  "-32600",
+  "-32601",
+  "-32602",
+  "-32603",
+  "-32800",
+  "-32000",
+  "-32002",
+  "-32042",
+]);
+
+export function normalizeGitHubCopilotAcpErrorCode(code: string | undefined): string | undefined {
+  if (code === undefined) return undefined;
+  return KNOWN_ACP_ERROR_CODES.has(code) ? code : "other";
+}
+
 function telemetryAttributes(record: GitHubCopilotTelemetryRecord) {
   return {
     provider: "githubCopilot",
@@ -280,7 +297,7 @@ function telemetryAttributes(record: GitHubCopilotTelemetryRecord) {
     interactionMode: record.interactionMode,
     runtimeMode: record.runtimeMode,
     errorCode: record.errorCode,
-    acpErrorCode: record.acpErrorCode,
+    acpErrorCode: normalizeGitHubCopilotAcpErrorCode(record.acpErrorCode),
     retryable: record.retryable,
     toolKind: record.toolKind,
     toolOutcome: record.toolOutcome,
