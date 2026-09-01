@@ -228,6 +228,11 @@ export const make = Effect.gen(function* () {
       grokHomeEnv.length > 0
         ? path.resolve(expandHomePath(grokHomeEnv))
         : path.join(NodeOS.homedir(), ".grok");
+    const copilotHomeEnv = hostEnvironment["COPILOT_HOME"]?.trim() ?? "";
+    const copilotHome =
+      copilotHomeEnv.length > 0
+        ? path.resolve(expandHomePath(copilotHomeEnv))
+        : path.join(NodeOS.homedir(), ".copilot");
 
     return [
       { provider: "claude" as const, dir: claudeDir },
@@ -236,6 +241,12 @@ export const make = Effect.gen(function* () {
         provider: "grok" as const,
         dir: path.join(grokHome, "sessions"),
         fileName: "updates.jsonl",
+      },
+      {
+        provider: "githubCopilot" as const,
+        dir: path.join(copilotHome, "session-state"),
+        fileName: "events.jsonl",
+        maxDepth: 1,
       },
     ];
   });
@@ -368,7 +379,7 @@ export const make = Effect.gen(function* () {
     const livePaths = new Set<string>();
     const walkedRoots: string[] = [];
 
-    for (const { provider, dir, fileName } of dirs) {
+    for (const { provider, dir, fileName, maxDepth } of dirs) {
       const volumeId = yield* Effect.promise(() => readDirectoryVolumeId(dir));
       const exists = yield* fileSystem
         .exists(dir)
@@ -389,7 +400,10 @@ export const make = Effect.gen(function* () {
 
       walkedRoots.push(dir);
       const files = yield* Effect.promise(() =>
-        listTranscriptFiles(dir, windowStartMs, fileName === undefined ? undefined : { fileName }),
+        listTranscriptFiles(dir, windowStartMs, {
+          ...(fileName === undefined ? {} : { fileName }),
+          ...(maxDepth === undefined ? {} : { maxDepth }),
+        }),
       );
       let scannedFiles = 0;
       let skippedFiles = 0;

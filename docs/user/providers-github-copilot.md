@@ -10,6 +10,12 @@ T3 Code connects to GitHub Copilot CLI through its Agent Client Protocol server.
 
 T3 Code discovers the models and reasoning levels advertised by the installed CLI. You can set a
 full path to the executable or add launch arguments when the CLI is installed outside `PATH`.
+Commands advertised by Copilot's ACP server also appear in the composer slash menu.
+
+Copilot CLI sessions appear on the Usage page with per-model token totals. Regular CLI sessions
+report exact totals when they exit. Sessions driven through Copilot's ACP server appear after each
+completed turn using their input and cache checkpoints; Copilot does not currently persist output
+or reasoning totals for those sessions.
 
 ## Windows and WSL
 

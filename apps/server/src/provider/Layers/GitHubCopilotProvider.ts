@@ -3,6 +3,7 @@ import {
   type ModelCapabilities,
   type ServerProvider,
   type ServerProviderModel,
+  type ServerProviderSlashCommand,
 } from "@t3tools/contracts";
 import { createModelCapabilities } from "@t3tools/shared/model";
 import { causeErrorTag } from "@t3tools/shared/observability";
@@ -63,6 +64,7 @@ const FALLBACK_MODELS: ReadonlyArray<ServerProviderModel> = [
 
 const VERSION_PROBE_TIMEOUT_MS = 15_000;
 const MODEL_DISCOVERY_TIMEOUT_MS = 60_000;
+const COMMAND_DISCOVERY_TIMEOUT_MS = 2_000;
 
 function flattenSelectOptions(
   option: EffectAcpSchema.SessionConfigOption | undefined,
@@ -145,6 +147,27 @@ export function buildGitHubCopilotModelsFromSessionSetup(
   });
 }
 
+export function buildGitHubCopilotSlashCommands(
+  commands: ReadonlyArray<EffectAcpSchema.AvailableCommand>,
+): ReadonlyArray<ServerProviderSlashCommand> {
+  const seen = new Set<string>();
+  return commands.flatMap((command) => {
+    const name = command.name.replace(/^\/+/, "").trim();
+    const key = name.toLowerCase();
+    if (!name || seen.has(key)) return [];
+    seen.add(key);
+    const description = command.description.trim();
+    const hint = command.input?.hint.trim();
+    return [
+      {
+        name,
+        ...(description ? { description } : {}),
+        ...(hint ? { input: { hint } } : {}),
+      },
+    ];
+  });
+}
+
 function fallbackModels(settings: GitHubCopilotSettings): ReadonlyArray<ServerProviderModel> {
   return providerModelsFromSettings(FALLBACK_MODELS, settings.customModels, EMPTY_CAPABILITIES);
 }
@@ -191,7 +214,7 @@ const runVersionCommand = (settings: GitHubCopilotSettings, environment: NodeJS.
     );
   });
 
-const discoverModels = (settings: GitHubCopilotSettings, environment: NodeJS.ProcessEnv) =>
+const discoverProviderDetails = (settings: GitHubCopilotSettings, environment: NodeJS.ProcessEnv) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -208,7 +231,14 @@ const discoverModels = (settings: GitHubCopilotSettings, environment: NodeJS.Pro
       clientInfo: { name: "t3-code-provider-probe", version: "0.0.0" },
     });
     const started = yield* runtime.start();
-    return buildGitHubCopilotModelsFromSessionSetup(started.sessionSetupResult);
+    const commands = yield* runtime.awaitAvailableCommands.pipe(
+      Effect.timeoutOption(COMMAND_DISCOVERY_TIMEOUT_MS),
+      Effect.map(Option.getOrElse(() => [])),
+    );
+    return {
+      models: buildGitHubCopilotModelsFromSessionSetup(started.sessionSetupResult),
+      slashCommands: buildGitHubCopilotSlashCommands(commands),
+    };
   }).pipe(Effect.scoped);
 
 export const checkGitHubCopilotProviderStatus = Effect.fn("checkGitHubCopilotProviderStatus")(
@@ -305,11 +335,12 @@ export const checkGitHubCopilotProviderStatus = Effect.fn("checkGitHubCopilotPro
       }
     }
 
-    const discovery = yield* discoverModels(settings, environment).pipe(
+    const discovery = yield* discoverProviderDetails(settings, environment).pipe(
       Effect.timeoutOption(MODEL_DISCOVERY_TIMEOUT_MS),
       Effect.exit,
     );
     let discoveredModels: ReadonlyArray<ServerProviderModel> = [];
+    let discoveredSlashCommands: ReadonlyArray<ServerProviderSlashCommand> = [];
     let discoveryWarning: string | undefined;
     if (Exit.isFailure(discovery)) {
       failureStage = "session_new";
@@ -317,13 +348,14 @@ export const checkGitHubCopilotProviderStatus = Effect.fn("checkGitHubCopilotPro
       yield* Effect.logWarning("GitHub Copilot ACP discovery failed.", {
         errorTag: causeErrorTag(discovery.cause),
       });
-      discoveryWarning = "Copilot ACP discovery failed; models will load when a session starts.";
+      discoveryWarning = "Copilot ACP discovery failed; provider details will load with a session.";
     } else if (Option.isNone(discovery.value)) {
       failureStage = "session_new";
       failureCode = "model_discovery_timeout";
       discoveryWarning = `Copilot ACP discovery timed out after ${MODEL_DISCOVERY_TIMEOUT_MS}ms; models will load when a session starts.`;
     } else {
-      discoveredModels = discovery.value.value;
+      discoveredModels = discovery.value.value.models;
+      discoveredSlashCommands = discovery.value.value.slashCommands;
       if (discoveredModels.length === 0) {
         failureStage = "session_new";
         failureCode = "model_discovery_empty";
@@ -341,6 +373,7 @@ export const checkGitHubCopilotProviderStatus = Effect.fn("checkGitHubCopilotPro
         discoveredModels.length > 0
           ? providerModelsFromSettings(discoveredModels, settings.customModels, EMPTY_CAPABILITIES)
           : fallback,
+      slashCommands: discoveredSlashCommands,
       probe: {
         installed: true,
         version,

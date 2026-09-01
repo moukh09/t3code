@@ -22,6 +22,7 @@ import {
   mightCarryUsage,
   parseClaudeLine,
   parseCodexLine,
+  parseGitHubCopilotLine,
   parseGrokLine,
   type UsageRecord,
 } from "./usageTranscripts.ts";
@@ -46,12 +47,13 @@ export interface TranscriptFile {
 export async function listTranscriptFiles(
   root: string,
   sinceMs: number,
-  options?: { readonly fileName?: string },
+  options?: { readonly fileName?: string; readonly maxDepth?: number },
 ): Promise<readonly TranscriptFile[]> {
   const found: TranscriptFile[] = [];
   const fileName = options?.fileName;
+  const maxDepth = options?.maxDepth;
 
-  const walk = async (dir: string): Promise<void> => {
+  const walk = async (dir: string, depth: number): Promise<void> => {
     let entries;
     try {
       entries = await NodeFSP.readdir(dir, { withFileTypes: true });
@@ -61,7 +63,9 @@ export async function listTranscriptFiles(
     for (const entry of entries) {
       const child = NodePath.join(dir, entry.name);
       if (entry.isDirectory()) {
-        await walk(child);
+        if (maxDepth === undefined || depth < maxDepth) {
+          await walk(child, depth + 1);
+        }
         continue;
       }
       if (fileName !== undefined) {
@@ -80,7 +84,7 @@ export async function listTranscriptFiles(
     }
   };
 
-  await walk(root);
+  await walk(root, 0);
   return found;
 }
 
@@ -118,6 +122,7 @@ export async function readTranscriptRecords(
   provider: UsageProviderKind,
 ): Promise<readonly UsageRecord[] | null> {
   const records: UsageRecord[] = [];
+  let copilotSummaryRecords: readonly UsageRecord[] | undefined;
   const codexState = initialCodexScanState();
 
   try {
@@ -146,6 +151,20 @@ export async function readTranscriptRecords(
         continue;
       }
 
+      if (provider === "githubCopilot") {
+        if (!mightCarryUsage(line, provider)) continue;
+        const sessionId = NodePath.basename(NodePath.dirname(filePath));
+        const parsed = parseGitHubCopilotLine(line, sessionId);
+        if (line.includes('"session.shutdown"') && parsed.length > 0) {
+          copilotSummaryRecords = parsed;
+          continue;
+        }
+        for (const copilotRecord of parsed) {
+          records.push(copilotRecord);
+        }
+        continue;
+      }
+
       if (!mightCarryUsage(line, provider)) continue;
       const record = parseClaudeLine(line);
       if (record !== null) records.push(record);
@@ -154,5 +173,5 @@ export async function readTranscriptRecords(
     return null;
   }
 
-  return records;
+  return copilotSummaryRecords ?? records;
 }

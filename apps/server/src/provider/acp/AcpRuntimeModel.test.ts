@@ -392,6 +392,24 @@ describe("AcpRuntimeModel", () => {
     expect(configResult.configOptions).toEqual(configOptions);
     expect(configResult.events).toEqual([]);
 
+    const commands = [
+      {
+        name: "review",
+        description: "Review the current changes",
+        input: { hint: "Optional review focus" },
+      },
+    ] satisfies ReadonlyArray<EffectAcpSchema.AvailableCommand>;
+    const commandsResult = parseSessionUpdateEvent({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "available_commands_update",
+        availableCommands: commands,
+      },
+    } satisfies EffectAcpSchema.SessionNotification);
+
+    expect(commandsResult.availableCommands).toEqual(commands);
+    expect(commandsResult.events).toEqual([]);
+
     const usageResult = parseSessionUpdateEvent({
       sessionId: "session-1",
       update: {

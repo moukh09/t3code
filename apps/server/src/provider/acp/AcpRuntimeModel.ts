@@ -767,12 +767,14 @@ function boundToolCallRawPayload(
 export function parseSessionUpdateEvent(params: EffectAcpSchema.SessionNotification): {
   readonly modeId?: string;
   readonly configOptions?: ReadonlyArray<EffectAcpSchema.SessionConfigOption>;
+  readonly availableCommands?: ReadonlyArray<EffectAcpSchema.AvailableCommand>;
   readonly events: ReadonlyArray<AcpParsedSessionEvent>;
 } {
   const upd = params.update;
   const events: Array<AcpParsedSessionEvent> = [];
   let modeId: string | undefined;
   let configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption> | undefined;
+  let availableCommands: ReadonlyArray<EffectAcpSchema.AvailableCommand> | undefined;
 
   switch (upd.sessionUpdate) {
     case "current_mode_update": {
@@ -849,6 +851,10 @@ export function parseSessionUpdateEvent(params: EffectAcpSchema.SessionNotificat
       configOptions = upd.configOptions;
       break;
     }
+    case "available_commands_update": {
+      availableCommands = upd.availableCommands;
+      break;
+    }
     case "usage_update": {
       events.push({
         _tag: "UsageUpdated",
@@ -867,6 +873,7 @@ export function parseSessionUpdateEvent(params: EffectAcpSchema.SessionNotificat
   return {
     ...(modeId !== undefined ? { modeId } : {}),
     ...(configOptions !== undefined ? { configOptions } : {}),
+    ...(availableCommands !== undefined ? { availableCommands } : {}),
     events,
   };
 }

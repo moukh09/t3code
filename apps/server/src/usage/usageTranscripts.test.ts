@@ -5,6 +5,7 @@ import {
   initialCodexScanState,
   parseClaudeLine,
   parseCodexLine,
+  parseGitHubCopilotLine,
   parseGrokLine,
   totalTokens,
 } from "./usageTranscripts.ts";
@@ -249,6 +250,130 @@ describe("totalTokens", () => {
         reasoningTokens: 25,
       }),
     ).toBe(100);
+  });
+
+  describe("parseGitHubCopilotLine", () => {
+    it("extracts disjoint per-model totals from a completed session", () => {
+      const records = parseGitHubCopilotLine(
+        JSON.stringify({
+          type: "session.shutdown",
+          timestamp: "2026-08-31T22:36:24.118Z",
+          data: {
+            modelMetrics: {
+              "gpt-5.6-sol": {
+                usage: {
+                  inputTokens: 8_506_030,
+                  outputTokens: 23_476,
+                  cacheReadTokens: 6_498_322,
+                  cacheWriteTokens: 2_007_558,
+                  reasoningTokens: 11_465,
+                },
+              },
+            },
+          },
+        }),
+        "session-1",
+      );
+
+      expect(records).toEqual([
+        {
+          provider: "githubCopilot",
+          timestampMs: Date.parse("2026-08-31T22:36:24.118Z"),
+          model: "gpt-5.6-sol",
+          sessionId: "session-1",
+          totals: {
+            uncachedInputTokens: 150,
+            cachedInputTokens: 6_498_322,
+            cacheCreationTokens: 2_007_558,
+            outputTokens: 23_476,
+            reasoningTokens: 11_465,
+          },
+          reportedCostUsd: null,
+          dedupeKey: "session-1:gpt-5.6-sol",
+        },
+      ]);
+    });
+
+    it("extracts input and cache totals from an ACP turn checkpoint", () => {
+      const records = parseGitHubCopilotLine(
+        JSON.stringify({
+          type: "session.usage_checkpoint",
+          id: "checkpoint-1",
+          timestamp: "2026-08-31T23:14:07.992Z",
+          data: {
+            promptCacheBreakState: [
+              {
+                conversation: "main",
+                models: {
+                  "gpt-5-mini": {
+                    prompt_tokens: 31_565,
+                    cache_read: 31_360,
+                    cache_write: 100,
+                  },
+                },
+              },
+            ],
+          },
+        }),
+        "session-1",
+      );
+
+      expect(records).toEqual([
+        {
+          provider: "githubCopilot",
+          timestampMs: Date.parse("2026-08-31T23:14:07.992Z"),
+          model: "gpt-5-mini",
+          sessionId: "session-1",
+          totals: {
+            uncachedInputTokens: 105,
+            cachedInputTokens: 31_360,
+            cacheCreationTokens: 100,
+            outputTokens: 0,
+            reasoningTokens: 0,
+          },
+          reportedCostUsd: null,
+          dedupeKey: "session-1:checkpoint-1:gpt-5-mini",
+        },
+      ]);
+    });
+
+    it("ignores incomplete sessions and zero-token model entries", () => {
+      expect(
+        parseGitHubCopilotLine(JSON.stringify({ type: "assistant.turn_end" }), "session-1"),
+      ).toEqual([]);
+      expect(
+        parseGitHubCopilotLine(
+          JSON.stringify({
+            type: "session.shutdown",
+            timestamp: "2026-08-31T22:36:24.118Z",
+            data: {
+              modelMetrics: {
+                empty: {
+                  usage: {
+                    inputTokens: 0,
+                    outputTokens: 0,
+                    cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
+                    reasoningTokens: 0,
+                  },
+                },
+              },
+            },
+          }),
+          "session-1",
+        ),
+      ).toEqual([]);
+      expect(
+        parseGitHubCopilotLine(
+          JSON.stringify({
+            type: "session.usage_checkpoint",
+            timestamp: "2026-08-31T23:14:07.992Z",
+            data: { promptCacheBreakState: [] },
+          }),
+          "session-1",
+        ),
+      ).toEqual([]);
+    });
   });
 });
 

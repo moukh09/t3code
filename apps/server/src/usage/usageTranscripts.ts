@@ -70,6 +70,9 @@ export function totalTokens(totals: UsageTokenTotals): number {
 export function mightCarryUsage(line: string, provider: UsageProviderKind): boolean {
   if (provider === "claude") return line.includes('"usage"');
   if (provider === "grok") return line.includes('"turn_completed"');
+  if (provider === "githubCopilot") {
+    return line.includes('"session.shutdown"') || line.includes('"session.usage_checkpoint"');
+  }
   return line.includes('"token_count"');
 }
 
@@ -480,6 +483,117 @@ export function parseGrokLine(line: string): readonly UsageRecord[] {
       totals,
       reportedCostUsd,
       dedupeKey: promptId === null ? null : `${sessionId}:${promptId}:${entry.model}`,
+    });
+  }
+  return results;
+}
+
+/* -------------------------------------------------------------------------- */
+/* GitHub Copilot CLI                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Parses usage records from a GitHub Copilot CLI `events.jsonl` session.
+ *
+ * Regular CLI sessions write cumulative per-model totals when they shut down.
+ * ACP sessions instead persist per-turn input/cache checkpoints. Both report
+ * inclusive input totals, so cache reads and writes are subtracted to produce
+ * the disjoint totals required by the usage contract.
+ */
+export function parseGitHubCopilotLine(line: string, sessionId: string): readonly UsageRecord[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return [];
+  }
+  if (typeof parsed !== "object" || parsed === null) return [];
+
+  const record = parsed as Record<string, unknown>;
+  const timestampMs = parseTimestampMs(record["timestamp"]);
+  if (timestampMs === null) return [];
+
+  const data = record["data"];
+  if (typeof data !== "object" || data === null) return [];
+  const dataRecord = data as Record<string, unknown>;
+
+  if (record["type"] === "session.usage_checkpoint") {
+    const cacheBreakState = dataRecord["promptCacheBreakState"];
+    if (!Array.isArray(cacheBreakState)) return [];
+    const eventId = typeof record["id"] === "string" ? record["id"].trim() : "";
+    const results: UsageRecord[] = [];
+
+    for (const rawState of cacheBreakState) {
+      if (typeof rawState !== "object" || rawState === null) continue;
+      const models = (rawState as Record<string, unknown>)["models"];
+      if (typeof models !== "object" || models === null) continue;
+
+      for (const [model, rawModel] of Object.entries(models as Record<string, unknown>)) {
+        if (model.trim().length === 0 || typeof rawModel !== "object" || rawModel === null) {
+          continue;
+        }
+        const modelRecord = rawModel as Record<string, unknown>;
+        const inputTokens = int(modelRecord["prompt_tokens"]);
+        const cachedInputTokens = int(modelRecord["cache_read"]);
+        const cacheCreationTokens = int(modelRecord["cache_write"]);
+        const totals: UsageTokenTotals = {
+          uncachedInputTokens: Math.max(0, inputTokens - cachedInputTokens - cacheCreationTokens),
+          cachedInputTokens,
+          cacheCreationTokens,
+          outputTokens: 0,
+          reasoningTokens: 0,
+        };
+        if (totalTokens(totals) === 0) continue;
+
+        results.push({
+          provider: "githubCopilot",
+          timestampMs,
+          model,
+          sessionId,
+          totals,
+          reportedCostUsd: null,
+          dedupeKey: eventId ? `${sessionId}:${eventId}:${model}` : null,
+        });
+      }
+    }
+    return results;
+  }
+
+  if (record["type"] !== "session.shutdown") return [];
+
+  const modelMetrics = dataRecord["modelMetrics"];
+  if (typeof modelMetrics !== "object" || modelMetrics === null) return [];
+
+  const results: UsageRecord[] = [];
+  for (const [model, rawMetrics] of Object.entries(modelMetrics as Record<string, unknown>)) {
+    if (model.trim().length === 0 || typeof rawMetrics !== "object" || rawMetrics === null) {
+      continue;
+    }
+    const usage = (rawMetrics as Record<string, unknown>)["usage"];
+    if (typeof usage !== "object" || usage === null) continue;
+    const usageRecord = usage as Record<string, unknown>;
+
+    const inputTokens = int(usageRecord["inputTokens"]);
+    const cachedInputTokens = int(usageRecord["cacheReadTokens"]);
+    const cacheCreationTokens = int(usageRecord["cacheWriteTokens"]);
+    const outputTokens = int(usageRecord["outputTokens"]);
+    const totals: UsageTokenTotals = {
+      uncachedInputTokens: Math.max(0, inputTokens - cachedInputTokens - cacheCreationTokens),
+      cachedInputTokens,
+      cacheCreationTokens,
+      outputTokens,
+      reasoningTokens: Math.min(outputTokens, int(usageRecord["reasoningTokens"])),
+    };
+    if (totalTokens(totals) === 0) continue;
+
+    results.push({
+      provider: "githubCopilot",
+      timestampMs,
+      model,
+      sessionId,
+      totals,
+      reportedCostUsd: null,
+      dedupeKey: `${sessionId}:${model}`,
     });
   }
   return results;

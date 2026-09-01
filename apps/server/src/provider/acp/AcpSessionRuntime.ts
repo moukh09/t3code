@@ -195,6 +195,8 @@ export class AcpSessionRuntime extends Context.Service<
     readonly getModeState: Effect.Effect<AcpSessionModeState | undefined>;
     /** Latest configuration options observed from setup, writes, and session notifications. */
     readonly getConfigOptions: Effect.Effect<ReadonlyArray<EffectAcpSchema.SessionConfigOption>>;
+    /** Waits for and returns the latest command list advertised by the ACP agent. */
+    readonly awaitAvailableCommands: Effect.Effect<ReadonlyArray<EffectAcpSchema.AvailableCommand>>;
     /**
      * Sends a prompt turn to the active session.
      * @see https://agentclientprotocol.com/protocol/schema#session/prompt
@@ -300,6 +302,10 @@ export const make = (
     );
     const assistantSegmentRef = yield* Ref.make<AcpAssistantSegmentState>({ nextSegmentIndex: 0 });
     const configOptionsRef = yield* Ref.make(sessionConfigOptionsFromSetup(undefined));
+    const availableCommandsRef = yield* Ref.make<ReadonlyArray<EffectAcpSchema.AvailableCommand>>(
+      [],
+    );
+    const availableCommandsUpdated = yield* Deferred.make<void>();
     const startStateRef = yield* Ref.make<AcpStartState>({ _tag: "NotStarted" });
     const promptSerializationSemaphore = yield* Semaphore.make(1);
     const activePromptFiberRef = yield* Ref.make<
@@ -406,6 +412,8 @@ export const make = (
           queue: eventQueue,
           modeStateRef,
           configOptionsRef,
+          availableCommandsRef,
+          availableCommandsUpdated,
           toolCallsRef,
           assistantSegmentRef,
           assistantItemRuntimeId,
@@ -726,6 +734,9 @@ export const make = (
       }),
       getModeState: Ref.get(modeStateRef),
       getConfigOptions: Ref.get(configOptionsRef),
+      awaitAvailableCommands: Deferred.await(availableCommandsUpdated).pipe(
+        Effect.flatMap(() => Ref.get(availableCommandsRef)),
+      ),
       prompt: (payload) =>
         promptSerializationSemaphore.withPermit(
           Effect.gen(function* () {
@@ -856,6 +867,8 @@ const handleSessionUpdate = ({
   queue,
   modeStateRef,
   configOptionsRef,
+  availableCommandsRef,
+  availableCommandsUpdated,
   toolCallsRef,
   assistantSegmentRef,
   assistantItemRuntimeId,
@@ -864,6 +877,8 @@ const handleSessionUpdate = ({
   readonly queue: Queue.Queue<AcpSessionRuntimeEvent>;
   readonly modeStateRef: Ref.Ref<AcpSessionModeState | undefined>;
   readonly configOptionsRef: Ref.Ref<ReadonlyArray<EffectAcpSchema.SessionConfigOption>>;
+  readonly availableCommandsRef: Ref.Ref<ReadonlyArray<EffectAcpSchema.AvailableCommand>>;
+  readonly availableCommandsUpdated: Deferred.Deferred<void>;
   readonly toolCallsRef: Ref.Ref<Map<string, AcpToolCallTrackedState>>;
   readonly assistantSegmentRef: Ref.Ref<AcpAssistantSegmentState>;
   readonly assistantItemRuntimeId: string;
@@ -878,6 +893,10 @@ const handleSessionUpdate = ({
     }
     if (parsed.configOptions) {
       yield* Ref.set(configOptionsRef, parsed.configOptions);
+    }
+    if (parsed.availableCommands) {
+      yield* Ref.set(availableCommandsRef, parsed.availableCommands);
+      yield* Deferred.succeed(availableCommandsUpdated, undefined);
     }
     for (const event of parsed.events) {
       if (event._tag === "ToolCallUpdated") {
