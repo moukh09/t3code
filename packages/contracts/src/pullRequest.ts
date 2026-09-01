@@ -9,6 +9,7 @@ import {
   ProjectId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
+import type { RepositoryIdentity } from "./environment.ts";
 import { SourceControlProviderKind } from "./sourceControl.ts";
 
 export const PullRequestInvolvement = Schema.Literals(["all", "reviewing", "authored"]);
@@ -1022,6 +1023,25 @@ export function pullRequestHostOf(
 ): string {
   const host = identity?.canonicalKey?.split("/")[0]?.trim();
   return host === undefined || host.length === 0 ? kind : host.toLowerCase();
+}
+
+/**
+ * The repository selector a pull request provider accepts. Azure DevOps takes only the
+ * repository name and infers its organization and project from the checkout.
+ */
+export function pullRequestRepositoryOf(
+  identity:
+    | Pick<RepositoryIdentity, "displayName" | "name" | "owner" | "provider">
+    | null
+    | undefined,
+): string | null {
+  if (!identity) return null;
+  if (identity.provider === "azure-devops") {
+    const segments = (identity.displayName ?? "").split("/").filter((part) => part !== "_git");
+    return identity.name || segments.at(-1) || null;
+  }
+  if (identity.displayName) return identity.displayName;
+  return identity.owner && identity.name ? `${identity.owner}/${identity.name}` : null;
 }
 
 /**

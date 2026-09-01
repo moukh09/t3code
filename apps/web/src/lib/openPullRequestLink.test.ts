@@ -147,6 +147,20 @@ describe("matchesLinkedPullRequestUrl", () => {
     ).toBe(true);
   });
 
+  it("matches the same Azure DevOps pull request", () => {
+    expect(
+      matchesLinkedPullRequestUrl(
+        {
+          projectId: ProjectId.make("project-1"),
+          repository: "t3code",
+          number: 5489381,
+          url: "https://dev.azure.com/acme/platform/_git/t3code/pullrequest/5489381",
+        },
+        "https://dev.azure.com/acme/platform/_git/t3code/pullrequest/5489381?_a=files",
+      ),
+    ).toBe(true);
+  });
+
   it("rejects a different pull request or host", () => {
     expect(
       matchesLinkedPullRequestUrl(linkedPullRequest, "https://github.com/pingdotgg/t3code/pull/43"),
@@ -324,6 +338,56 @@ describe("findProjectForChangeRequest", () => {
       }),
     ).toBe(projects[0]);
   });
+
+  it("matches an Azure DevOps HTTPS remote", () => {
+    const projects = [
+      project({
+        canonicalKey: "dev.azure.com/acme/platform/_git/t3code",
+        provider: "azure-devops",
+        displayName: "acme/platform/_git/t3code",
+        name: "t3code",
+      }),
+    ];
+    expect(
+      findProjectForChangeRequest(projects, {
+        host: "dev.azure.com",
+        repository: "acme/platform/_git/t3code",
+        number: 5489381,
+      }),
+    ).toBe(projects[0]);
+  });
+
+  it.each([
+    {
+      canonicalKey: "ssh.dev.azure.com/v3/acme/platform/t3code",
+      host: "dev.azure.com",
+      repository: "acme/platform/_git/t3code",
+    },
+    {
+      canonicalKey: "vs-ssh.visualstudio.com/v3/acme/platform/t3code",
+      host: "acme.visualstudio.com",
+      repository: "platform/_git/t3code",
+    },
+  ])(
+    "matches an Azure DevOps SSH remote to its browser URL",
+    ({ canonicalKey, host, repository }) => {
+      const projects = [
+        project({
+          canonicalKey,
+          provider: "azure-devops",
+          displayName: "v3/acme/platform/t3code",
+          name: "t3code",
+        }),
+      ];
+      expect(
+        findProjectForChangeRequest(projects, {
+          host,
+          repository,
+          number: 5489381,
+        }),
+      ).toBe(projects[0]);
+    },
+  );
 
   it("keeps two hosts apart, so an Enterprise link does not open the public one", () => {
     const projects = [

@@ -27,6 +27,14 @@ describe("parsePullRequestReference", () => {
     ).toBe("https://acme.visualstudio.com/project/_git/t3code/pullrequest/42");
   });
 
+  it("accepts legacy Azure DevOps collection URLs", () => {
+    expect(
+      parsePullRequestReference(
+        "https://acme.visualstudio.com/DefaultCollection/project/_git/t3code/pullrequest/42",
+      ),
+    ).toBe("https://acme.visualstudio.com/DefaultCollection/project/_git/t3code/pullrequest/42");
+  });
+
   it("accepts raw numbers", () => {
     expect(parsePullRequestReference("42")).toBe("42");
   });

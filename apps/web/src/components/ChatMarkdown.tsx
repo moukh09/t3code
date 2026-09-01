@@ -13,11 +13,12 @@ import {
   TriangleAlertIcon,
   WrapTextIcon,
 } from "lucide-react";
-import type {
-  EnvironmentId,
-  ScopedThreadRef,
-  ServerProviderSkill,
-  ThreadLinkedPullRequest,
+import {
+  pullRequestRepositoryOf,
+  type EnvironmentId,
+  type ScopedThreadRef,
+  type ServerProviderSkill,
+  type ThreadLinkedPullRequest,
 } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
@@ -1761,7 +1762,7 @@ function ChatMarkdown({
       if (project === undefined) return null;
       return {
         projectId: project.id,
-        repository: project.repositoryIdentity?.displayName ?? parsed.repository,
+        repository: pullRequestRepositoryOf(project.repositoryIdentity) ?? parsed.repository,
         number: parsed.number,
         url: href,
       };

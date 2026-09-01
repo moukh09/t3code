@@ -9,7 +9,11 @@ import { useNavigate } from "@tanstack/react-router";
 import * as Schema from "effect/Schema";
 import { type MouseEvent, useCallback } from "react";
 
-import { pullRequestHostOf, type SourceControlProviderKind } from "@t3tools/contracts";
+import {
+  pullRequestHostOf,
+  pullRequestRepositoryOf,
+  type SourceControlProviderKind,
+} from "@t3tools/contracts";
 
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { readLocalApi } from "../localApi";
@@ -212,7 +216,8 @@ function claim(host: string, match: RegExpExecArray | null): ChangeRequestLink |
  * The project a link belongs to, or nothing. Matched the way the server matches: the repository
  * identity is the full path below the host where one was recorded — which is what nested GitLab
  * groups and Azure project paths need — and the host is the first segment of the canonical
- * remote, so github.com and an Enterprise install stay apart.
+ * remote, so github.com and an Enterprise install stay apart. Azure DevOps SSH remotes use a
+ * transport-only host and path, which are translated to the current and legacy browser forms.
  */
 export function findProjectForChangeRequest(
   projects: ReadonlyArray<EnvironmentProject>,
@@ -226,10 +231,33 @@ export function findProjectForChangeRequest(
     const repository =
       identity.displayName ??
       (identity.owner && identity.name ? `${identity.owner}/${identity.name}` : null);
-    return (
+    if (
       repository !== null &&
       repository.toLowerCase() === link.repository.toLowerCase() &&
       pullRequestHostOf(identity, kind) === link.host.toLowerCase()
+    ) {
+      return true;
+    }
+
+    if (kind !== "azure-devops") return false;
+    const [host, marker, organization, azureProject, azureRepository, ...rest] =
+      identity.canonicalKey.toLowerCase().split("/");
+    if (
+      rest.length > 0 ||
+      marker !== "v3" ||
+      !organization ||
+      !azureProject ||
+      !azureRepository ||
+      (host !== "ssh.dev.azure.com" && host !== "vs-ssh.visualstudio.com")
+    ) {
+      return false;
+    }
+
+    const currentRepository = `${organization}/${azureProject}/_git/${azureRepository}`;
+    const legacyRepository = `${azureProject}/_git/${azureRepository}`;
+    return (
+      (link.host === "dev.azure.com" && link.repository === currentRepository) ||
+      (link.host === `${organization}.visualstudio.com` && link.repository === legacyRepository)
     );
   });
 }
@@ -299,9 +327,7 @@ export function useOpenChangeRequestLink(
       if (resolvedThreadRef) {
         useRightPanelStore.getState().openPullRequest(resolvedThreadRef, {
           projectId: project.id,
-          // The identity's own spelling, not the one read out of the URL: the panel asks the
-          // provider for this repository, while matching a link only ever compares lower case.
-          repository: project.repositoryIdentity?.displayName ?? parsed.repository,
+          repository: pullRequestRepositoryOf(project.repositoryIdentity) ?? parsed.repository,
           number: parsed.number,
         });
         return true;
@@ -313,7 +339,7 @@ export function useOpenChangeRequestLink(
           // Every state, so the pull request being opened is also in the list behind it whether
           // it is open, merged or closed.
           state: "all",
-          repository: parsed.repository,
+          repository: pullRequestRepositoryOf(project.repositoryIdentity) ?? parsed.repository,
           number: parsed.number,
           selectedProjectId: project.id,
           // Named so the page opens the right one of two servers holding this project.

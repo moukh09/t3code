@@ -3,7 +3,7 @@ const GITHUB_PULL_REQUEST_URL_PATTERN =
 const GITLAB_MERGE_REQUEST_URL_PATTERN =
   /^https:\/\/[^/\s]*gitlab[^/\s]*\/.+\/-\/merge_requests\/(\d+)(?:[/?#].*)?$/i;
 const AZURE_DEVOPS_PULL_REQUEST_URL_PATTERN =
-  /^https:\/\/(?:dev\.azure\.com\/[^/\s]+\/[^/\s]+|[^/\s]+\.visualstudio\.com\/[^/\s]+)\/_git\/[^/\s]+\/pullrequest\/(\d+)(?:[/?#].*)?$/i;
+  /^https:\/\/(?:dev\.azure\.com\/(?:[^/\s]+\/){2,}|[^/\s]+\.visualstudio\.com\/(?:[^/\s]+\/)+)_git\/[^/\s]+\/pullrequest\/(\d+)(?:[/?#].*)?$/i;
 const PULL_REQUEST_NUMBER_PATTERN = /^#?(\d+)$/;
 const GITHUB_CLI_PR_CHECKOUT_PATTERN = /^gh\s+pr\s+checkout\s+(.+)$/i;
 const GITLAB_CLI_MR_CHECKOUT_PATTERN = /^glab\s+mr\s+checkout\s+(.+)$/i;

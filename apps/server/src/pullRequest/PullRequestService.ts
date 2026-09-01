@@ -10,6 +10,7 @@ import {
   PullRequestUnavailableError,
   pullRequestHostOf,
   pullRequestProviderRequirement,
+  pullRequestRepositoryOf,
   resolvePullRequestAuthorFilter,
   type OrchestrationProjectShell,
   type PullRequestAction,
@@ -473,16 +474,8 @@ function withRateLimitBackoff(
  * One function because everything downstream is keyed by what it answers: the rows' own
  * `repository`, the per-repository cursors, and the detail and diff reads a row leads to.
  */
-export function repositoryIdentityOf(project: OrchestrationProjectShell): string | null {
-  const identity = project.repositoryIdentity;
-  if (!identity) return null;
-  if (identity.provider === "azure-devops") {
-    const segments = (identity.displayName ?? "").split("/").filter((part) => part !== "_git");
-    return identity.name || segments.at(-1) || null;
-  }
-  if (identity.displayName) return identity.displayName;
-  return identity.owner && identity.name ? `${identity.owner}/${identity.name}` : null;
-}
+export const repositoryIdentityOf = (project: OrchestrationProjectShell): string | null =>
+  pullRequestRepositoryOf(project.repositoryIdentity);
 
 export const make = Effect.gen(function* () {
   const registry = yield* PullRequestProviderRegistry;
@@ -624,9 +617,14 @@ export const make = Effect.gen(function* () {
         if (!match) {
           return Effect.fail(new PullRequestUnavailableError({ reason: "provider-unsupported" }));
         }
-        // The repository travels through the client, so it is checked against the project's
-        // own remote rather than being handed to a provider verbatim.
-        if (match.repository.toLowerCase() !== ref.repository.trim().toLowerCase()) {
+        // Older clients stored the full Azure DevOps remote path here. Accept both remote-derived
+        // forms so those thread links keep working while providers receive their native selector.
+        const requestedRepository = ref.repository.trim().toLowerCase();
+        const remoteRepository = match.project.repositoryIdentity?.displayName?.toLowerCase();
+        if (
+          match.repository.toLowerCase() !== requestedRepository &&
+          remoteRepository !== requestedRepository
+        ) {
           return Effect.fail(
             new PullRequestOperationError({
               operation: "resolveRepository",

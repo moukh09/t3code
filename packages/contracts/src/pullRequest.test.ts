@@ -7,6 +7,7 @@ import {
   PullRequestListInput,
   PullRequestListResult,
   PullRequestReviewerRequestInput,
+  pullRequestRepositoryOf,
   resolvePullRequestAuthorFilter,
 } from "./pullRequest.ts";
 
@@ -62,6 +63,30 @@ const LIST_RESULT: PullRequestListResult = {
   truncated: false,
   nextCursors: { "github.com pingdotgg/t3code": "2026-07-02T00:00:00Z|1|1" },
 };
+
+describe("pullRequestRepositoryOf", () => {
+  it("uses the Azure DevOps repository name instead of its remote path", () => {
+    expect(
+      pullRequestRepositoryOf({
+        provider: "azure-devops",
+        displayName: "acme/platform/_git/t3code",
+        owner: "acme",
+        name: "t3code",
+      }),
+    ).toBe("t3code");
+  });
+
+  it("preserves nested repository paths for other providers", () => {
+    expect(
+      pullRequestRepositoryOf({
+        provider: "gitlab",
+        displayName: "group/platform/t3code",
+        owner: "group",
+        name: "t3code",
+      }),
+    ).toBe("group/platform/t3code");
+  });
+});
 
 describe("PullRequestListResult", () => {
   /**
